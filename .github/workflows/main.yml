@@ -7,18 +7,14 @@ on:
   workflow_dispatch:
 
 env:
-  # Cortex variables
-  CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY}}
-  CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID}}
+  # Global variables (used by all jobs)
   CORTEX_API_URL: https://api-e-cxsiamp.xdr.us.paloaltonetworks.com
-  
-  # App variables - UPDATED
   IMAGE_NAME: deepak-terragoat-app
   AWS_ECR_REPOSITORY: cc-demo/my-terragoat-app
   AWS_REGION: ${{ secrets.AWS_REGION }}
 
 jobs:
-  # --- JOB 1: SCAN TERRAFORM CODE ---
+  # --- JOB 1: SCAN TERRAFORM CODE (Uses Read-Only Key) ---
   code-scan:
     name: 1. Scan Terraform Code
     runs-on: ubuntu-latest
@@ -32,7 +28,11 @@ jobs:
           sudo apt-get update && sudo apt-get install -y jq
           echo ">>> [Job 1] jq installed."
 
-      - name: Download cortexcli
+      - name: Download cortexcli (using Code Scan Key)
+        env:
+          # Uses the original "Read Only" key
+          CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY}}
+          CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID}}
         run: |
           echo ">>> [Job 1] Downloading Cortex CLI..."
           set -x
@@ -45,13 +45,16 @@ jobs:
           set +x
           echo ">>> [Job 1] Cortex CLI downloaded and made executable."
 
-      - name: Run Cortex CLI Code Scan
+      - name: Run Cortex CLI Code Scan (using Code Scan Key)
+        env:
+          # Uses the original "Read Only" key
+          CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY}}
+          CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID}}
         run: |
           echo "------------------------------------------"
           echo ">>> [Job 1] Starting Cortex code scan..."
           echo "------------------------------------------"
           
-          # 'time' will output the scan duration after the command completes
           time ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
@@ -67,7 +70,7 @@ jobs:
           echo ">>> [Job 1] Code scan finished."
           echo "------------------------------------------"
 
-  # --- JOB 2: SCAN DOCKER IMAGE ---
+  # --- JOB 2: SCAN DOCKER IMAGE (Uses View/Edit Key) ---
   image-scan:
     name: 2. Scan Docker Image
     runs-on: ubuntu-latest
@@ -88,7 +91,11 @@ jobs:
           sudo apt-get update && sudo apt-get install -y jq
           echo ">>> [Job 2] jq installed."
 
-      - name: Download cortexcli
+      - name: Download cortexcli (using Image Scan Key)
+        env:
+          # Uses the NEW "View/Edit" key
+          CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY_IMAGESCAN}}
+          CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID_IMAGESCAN}}
         run: |
           echo ">>> [Job 2] Downloading Cortex CLI..."
           set -x
@@ -107,18 +114,22 @@ jobs:
           docker build -t ${{ env.IMAGE_NAME }}:latest .
           echo ">>> [Job 2] Local image build complete."
     
-      - name: Run Cortex CLI Image Scan
+      - name: Run Cortex CLI Image Scan (using Image Scan Key)
+        env:
+          # Uses the NEW "View/Edit" key
+          CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY_IMAGESCAN}}
+          CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID_IMAGESCAN}}
         run: |
           echo "------------------------------------------"
           echo ">>> [Job 2] Starting Cortex image scan..."
           echo "------------------------------------------"
           
-          # 'time' will output the scan duration after the command completes
           time ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
             --api-key-id "${CORTEX_API_KEY_ID}" \
-            image scan "${{ env.IMAGE_NAME }}:latest" \
+            image scan \
+            "${{ env.IMAGE_NAME }}:latest" \
             --source "GITHUB_ACTIONS"
             
           echo "------------------------------------------"
@@ -136,8 +147,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      # --- THIS IS THE FIX ---
-      # Moved the 'run' command to its own step
       - name: Log AWS credential configuration
         run: echo ">>> [Job 3] Configuring AWS credentials..."
 
@@ -145,7 +154,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_KEY }}
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }} 
           aws-region: ${{ env.AWS_REGION }}
 
@@ -153,10 +162,8 @@ jobs:
         id: login-ecr
         run: |
           echo ">>> [Job 3] Logging into AWS ECR..."
-          # Use aws sts get-caller-identity to dynamically get the Account ID
           aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $(aws sts get-caller-identity --query Account --output text).dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
           echo ">>> [Job 3] ECR login successful."
-          # Set the registry URL as an output for the next step
           echo "registry=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
       - name: Build, tag, and push image to Amazon ECR
@@ -169,7 +176,7 @@ jobs:
           docker build -t $ECR_REGISTRY/$AWS_ECR_REPOSITORY:$IMAGE_TAG .
           echo ">>> [Job 3] Pushing image to ECR: $ECR_REGISTRY/$AWS_ECR_REPOSITORY:$IMAGE_TAG"
           docker push $ECR_REGISTRY/$AWS_ECR_REPOSITORY:$IMAGE_TAG
-          echo "image_uri=$ECR_REGISTRY/$AWS_ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image_uri=$ECR_REGISTRY/$AWS_T_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo ">>> [Job 3] Image push complete."
 
       - name: Set up Terraform
@@ -184,6 +191,5 @@ jobs:
       - name: Terraform Apply
         run: |
           echo ">>> [Job 3] Running terraform apply..."
-          # Pass the newly built image URI as a variable to Terraform
           terraform apply -auto-approve -var="image_uri=${{ steps.build-image.outputs.image_uri }}"
           echo ">>> [Job 3] Terraform apply complete."
