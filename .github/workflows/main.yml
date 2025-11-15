@@ -12,9 +12,14 @@ env:
   IMAGE_NAME: deepak-terragoat-app
   AWS_ECR_REPOSITORY: cc-demo/my-terragoat-app
   AWS_REGION: ${{ secrets.AWS_REGION }}
+  # ---
+  # MOVED: Keys are now defined globally for all jobs
+  # ---
+  CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY}}
+  CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID}}
 
 jobs:
-  # --- JOB 1: SCAN TERRAFORM CODE (Uses Read-Only Key) ---
+  # --- JOB 1: SCAN TERRAFORM CODE ---
   code-scan:
     name: 1. Scan Terraform Code
     runs-on: ubuntu-latest
@@ -28,34 +33,32 @@ jobs:
           sudo apt-get update && sudo apt-get install -y jq
           echo ">>> [Job 1] jq installed."
 
-      - name: Download cortexcli (using Code Scan Key)
-        env:
-          # Uses the original "Read Only" key
-          CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY}}
-          CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID}}
+      - name: Download cortexcli
+        # ---
+        # REMOVED: Local env: block is no longer needed
+        # ---
         run: |
           echo ">>> [Job 1] Downloading Cortex CLI..."
           set -x
-          crtx_resp=$(curl "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
+          crtx_resp=$(curl -s "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
             -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
             -H "Authorization: ${CORTEX_API_KEY}")
           crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
-          curl -o cortexcli $crtx_url
+          curl -L -o cortexcli $crtx_url
           chmod +x cortexcli
           set +x
           echo ">>> [Job 1] Cortex CLI downloaded and made executable."
 
-      - name: Run Cortex CLI Code Scan (using Code Scan Key)
-        env:
-          # Uses the original "Read Only" key
-          CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY}}
-          CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID}}
+      - name: Run Cortex CLI Code Scan
+        # ---
+        # REMOVED: Local env: block is no longer needed
+        # ---
         run: |
           echo "------------------------------------------"
           echo ">>> [Job 1] Starting Cortex code scan..."
           echo "------------------------------------------"
           
-          time ./cortexcli \
+          time ./cORTEX_API_KEYcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
             --api-key-id "${CORTEX_API_KEY_ID}" \
@@ -70,7 +73,7 @@ jobs:
           echo ">>> [Job 1] Code scan finished."
           echo "------------------------------------------"
 
-  # --- JOB 2: SCAN DOCKER IMAGE (Uses View/Edit Key) ---
+  # --- JOB 2: SCAN DOCKER IMAGE ---
   image-scan:
     name: 2. Scan Docker Image
     runs-on: ubuntu-latest
@@ -91,40 +94,48 @@ jobs:
           sudo apt-get update && sudo apt-get install -y jq
           echo ">>> [Job 2] jq installed."
 
-      - name: Download cortexcli (using Image Scan Key)
-        env:
-          # Uses the NEW "View/Edit" key
-          CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY_IMAGESCAN}}
-          CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID_IMAGESCAN}}
+      - name: Download cortexcli
+        # ---
+        # REMOVED: Local env: block is no longer needed
+        # ---
         run: |
           echo ">>> [Job 2] Downloading Cortex CLI..."
-          set -x
-          crtx_resp=$(curl "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
-            -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
-            -H "Authorization: ${CORTEX_API_KEY}")
+          crtx_resp=$(curl -s "https://api-e-cxsiamp.xdr.us.paloaltonetworks.com/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" -H "Authorization: ${CORTEX_API_KEY}")
           crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
-          curl -o cortexcli $crtx_url
-          chmod +x cortexcli
-          set +x
-          echo ">>> [Job 2] Cortex CLI downloaded and made executable."
+          crtx_file=$(echo $crtx_resp | jq -r ".file_name")
+          
+          echo ">>> [Job 2] Downloading $crtx_file from signed URL..."
+          curl -L -o $crtx_file $crtx_url
+          
+          chmod +x $crtx_file
+          mv $crtx_file cortexcli
+          
+          echo ">>> [Job 2] Cortex CLI downloaded and made executable as 'cortexcli'."
 
       - name: Build Docker Image
         run: |
           echo ">>> [Job 2] Building local Docker image: ${{ env.IMAGE_NAME }}:latest"
           docker build -t ${{ env.IMAGE_NAME }}:latest .
           echo ">>> [Job 2] Local image build complete."
+
+      - name: Set up Java 11
+        run: |
+          echo ">>> [Job 2] Installing Java 11..."
+          sudo apt-get update
+          sudo apt-get install -y openjdk-11-jre
+          java -version
+          echo ">>> [Job 2] Java 11 installed."
     
-      - name: Run Cortex CLI Image Scan (using Image Scan Key)
-        env:
-          # Uses the NEW "View/Edit" key
-          CORTEX_API_KEY: ${{secrets.CORTEX_API_KEY_IMAGESCAN}}
-          CORTEX_API_KEY_ID: ${{secrets.CORTEX_API_KEY_ID_IMAGESCAN}}
+      - name: Run Cortex CLI Image Scan
+        # ---
+        # REMOVED: Local env: block is no longer needed
+        # ---
         run: |
           echo "------------------------------------------"
           echo ">>> [Job 2] Starting Cortex image scan..."
           echo "------------------------------------------"
           
-          time ./cortexcli \
+          time sudo ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
             --api-key-id "${CORTEX_API_KEY_ID}" \
@@ -162,9 +173,10 @@ jobs:
         id: login-ecr
         run: |
           echo ">>> [Job 3] Logging into AWS ECR..."
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $(aws sts get-caller-identity --query Account --output text).dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
           echo ">>> [Job 3] ECR login successful."
-          echo "registry=$(aws sts get-caller-identity --query Account --output text).dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
+          echo "registry=$AWS_ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
@@ -176,7 +188,7 @@ jobs:
           docker build -t $ECR_REGISTRY/$AWS_ECR_REPOSITORY:$IMAGE_TAG .
           echo ">>> [Job 3] Pushing image to ECR: $ECR_REGISTRY/$AWS_ECR_REPOSITORY:$IMAGE_TAG"
           docker push $ECR_REGISTRY/$AWS_ECR_REPOSITORY:$IMAGE_TAG
-          echo "image_uri=$ECR_REGISTRY/$AWS_T_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
+          echo "image_uri=$ECR_REGISTRY/$AWS_ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
           echo ">>> [Job 3] Image push complete."
 
       - name: Set up Terraform
