@@ -93,24 +93,22 @@ jobs:
           echo ">>> [Job 2] Installing dependencies (jq)..."
           sudo apt-get update && sudo apt-get install -y jq
           echo ">>> [Job 2] jq installed."
-
+      # ---
+      # CHANGED: Made this step identical to Job 1's download step
+      # to avoid the 'mv' error.
+      # ---
       - name: Download cortexcli
-        # ---
-        # REMOVED: Local env: block is no longer needed
-        # ---
         run: |
           echo ">>> [Job 2] Downloading Cortex CLI..."
-          crtx_resp=$(curl -s "https://api-e-cxsiamp.xdr.us.paloaltonetworks.com/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" -H "Authorization: ${CORTEX_API_KEY}")
+          set -x
+          crtx_resp=$(curl -s "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
+            -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
+            -H "Authorization: ${CORTEX_API_KEY}")
           crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
-          crtx_file=$(echo $crtx_resp | jq -r ".file_name")
-          
-          echo ">>> [Job 2] Downloading $crtx_file from signed URL..."
-          curl -L -o $crtx_file $crtx_url
-          
-          chmod +x $crtx_file
-          mv $crtx_file cortexcli
-          
-          echo ">>> [Job 2] Cortex CLI downloaded and made executable as 'cortexcli'."
+          curl -L -o cortexcli $crtx_url
+          chmod +x cortexcli
+          set +x
+          echo ">>> [Job 2] Cortex CLI downloaded and made executable."
 
       - name: Build Docker Image
         run: |
