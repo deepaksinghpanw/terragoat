@@ -95,7 +95,7 @@ jobs:
         run: |
           echo ">>> [Job 2] Installing dependencies (jq and libhyperscan5)..."
           sudo apt-get update
-          sudo apt-get install -y jq libhyperscan5
+          sudo apt-get install -y jq libhyperscan5 prelink
           echo ">>> [Job 2] Dependencies installed."
 
       # ---
