@@ -125,9 +125,6 @@ jobs:
           echo ">>> [Job 2] Starting Cortex image scan (archive method)..."
           echo "------------------------------------------"
           
-          # ---
-          # FIXED: Replaced --log-level with --support for debug logging
-          # ---
           time sudo ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
@@ -140,6 +137,23 @@ jobs:
           echo "------------------------------------------"
           echo ">>> [Job 2] Image scan finished."
           echo "------------------------------------------"
+
+      # ---
+      # NEW: Added step to print the debug logs on failure
+      # ---
+      - name: Display Cortex Logs on Failure
+        # This will run even if the previous step fails, allowing us to see the error
+        if: always()
+        run: |
+          echo ">>> [Job 2] Displaying Cortex CLI logs for debugging..."
+          # The home directory for the 'runner' user is /home/runner
+          echo ">>> [Job 2] Log directory: /home/runner/.cortexcli/logs/"
+          ls -laR /home/runner/.cortexcli/logs/
+          
+          echo ">>> [Job 2] Printing all log files..."
+          # Find all .log files and print them. Use '|| true' to prevent failure if no logs are found.
+          find /home/runner/.cortexcli/logs/ -type f -name "*.log" -exec cat {} + || echo "No .log files found."
+          echo ">>> [Job 2] End of logs."
 
   # --- JOB 3: BUILD, PUSH, AND DEPLOY ---
   deploy:
@@ -176,7 +190,7 @@ jobs:
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
         env:
-          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.login-geo.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           echo ">>> [Job 3] Building and tagging image for ECR..."
