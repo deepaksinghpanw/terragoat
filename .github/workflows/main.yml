@@ -139,20 +139,21 @@ jobs:
           echo "------------------------------------------"
 
       # ---
-      # NEW: Added step to print the debug logs on failure
+      # FIXED: Changed path from /home/runner to /root and added sudo
       # ---
       - name: Display Cortex Logs on Failure
         # This will run even if the previous step fails, allowing us to see the error
         if: always()
         run: |
           echo ">>> [Job 2] Displaying Cortex CLI logs for debugging..."
-          # The home directory for the 'runner' user is /home/runner
-          echo ">>> [Job 2] Log directory: /home/runner/.cortexcli/logs/"
-          ls -laR /home/runner/.cortexcli/logs/
+          # We ran the scanner with 'sudo', so the logs are in the /root directory
+          echo ">>> [Job 2] Log directory: /root/.cortexcli/logs/"
+          # We must also use 'sudo' to be able to list/read files in /root
+          sudo ls -laR /root/.cortexcli/logs/
           
           echo ">>> [Job 2] Printing all log files..."
-          # Find all .log files and print them. Use '|| true' to prevent failure if no logs are found.
-          find /home/runner/.cortexcli/logs/ -type f -name "*.log" -exec cat {} + || echo "No .log files found."
+          # Use 'sudo' here as well
+          sudo find /root/.cortexcli/logs/ -type f -name "*.log" -exec cat {} + || echo "No .log files found."
           echo ">>> [Job 2] End of logs."
 
   # --- JOB 3: BUILD, PUSH, AND DEPLOY ---
@@ -190,7 +191,7 @@ jobs:
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
         env:
-          ECR_REGISTRY: ${{ steps.login-geo.outputs.registry }}
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           echo ">>> [Job 3] Building and tagging image for ECR..."
