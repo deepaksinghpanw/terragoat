@@ -88,14 +88,18 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Install jq
-        run: |
-          echo ">>> [Job 2] Installing dependencies (jq)..."
-          sudo apt-get update && sudo apt-get install -y jq
-          echo ">>> [Job 2] jq installed."
       # ---
-      # CHANGED: Made this step identical to Job 1's download step
-      # to avoid the 'mv' error.
+      # CHANGED: Renamed step and added 'libhyperscan5'
+      # ---
+      - name: Install Dependencies
+        run: |
+          echo ">>> [Job 2] Installing dependencies (jq and libhyperscan5)..."
+          sudo apt-get update
+          sudo apt-get install -y jq libhyperscan5
+          echo ">>> [Job 2] Dependencies installed."
+
+      # ---
+      # CHANGED: Made this step identical to Job 1's download step to avoid the 'mv' error.
       # ---
       - name: Download cortexcli
         run: |
