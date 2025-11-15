@@ -58,7 +58,7 @@ jobs:
           echo ">>> [Job 1] Starting Cortex code scan..."
           echo "------------------------------------------"
           
-          time ./cORTEX_API_KEYcli \
+          time ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
             --api-key-id "${CORTEX_API_KEY_ID}" \
