@@ -138,9 +138,6 @@ jobs:
           echo ">>> [Job 2] Image scan finished."
           echo "------------------------------------------"
 
-      # ---
-      # FIXED: Changed path from /home/runner to /root and added sudo
-      # ---
       - name: Display Cortex Logs on Failure
         # This will run even if the previous step fails, allowing us to see the error
         if: always()
