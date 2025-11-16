@@ -105,13 +105,6 @@ jobs:
           docker build -t ${{ env.IMAGE_NAME }}:latest .
           echo ">>> [Job 2] Local image build complete."
 
-      # --- THIS STEP IS NOW REMOVED ---
-      # - name: Save Image to .tar Archive
-      #   run: |
-      #     echo ">>> [Job 2] Saving image to ${{ env.IMAGE_NAME }}.tar"
-      #     docker save -o ${{ env.IMAGE_NAME }}.tar ${{ env.IMAGE_NAME }}:latest
-      #     echo ">>> [Job 2] Image saved."
-
       - name: Set up Java 11
         run: |
           echo ">>> [Job 2] Installing Java 11..."
@@ -148,8 +141,7 @@ jobs:
         run: |
           echo ">>> [Job 2] Parsing most recent Cortex CLI log for errors..."
           
-          # Find the most recent log file in the /root directory
-          # We need sudo to list the contents of /root/.cortexcli/logs
+          # Define the log directory (in /root because we use sudo)
           LOG_DIR="/root/.cortexcli/logs"
           
           # Check if the directory exists and has files
@@ -158,6 +150,7 @@ jobs:
             exit 0
           fi
           
+          # Find the most recent log file in the /root directory
           LATEST_LOG_FILE=$(sudo ls -t $LOG_DIR | head -n1)
           FULL_LOG_PATH="$LOG_DIR/$LATEST_LOG_FILE"
           
@@ -169,8 +162,20 @@ jobs:
           
           echo ">>> [Job 2] End of parsed log."
 
-      # --- JOB 3: BUILD, PUSH, AND DEPLOY ---
-      deploy:
+  # --- JOB 3: BUILD, PUSH, AND DEPLOY ---
+  deploy:
+    name: 3. Build, Push, and Deploy
+    runs-on: ubuntu-latest
+    needs: [code-scan, image-scan]
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Log AWS credential configuration
+        run: echo ">>> [Job 3] Configuring AWS credentials..."
+
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
