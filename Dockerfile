@@ -1,6 +1,6 @@
 # File: Dockerfile
 # Use an older, known-vulnerable base image
-FROM python:3.7-alpine
+FROM python:3.8-slim-buster
 
 WORKDIR /app
 COPY . .
