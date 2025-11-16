@@ -38,6 +38,7 @@ jobs:
             -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
             -H "Authorization: ${CORTEX_API_KEY}")
           crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
+          crtx_file=$(echo $crtx_resp | jq -r ".file_name") 
           curl -L -o cortexcli $crtx_url
           chmod +x cortexcli
           set +x
@@ -70,9 +71,8 @@ jobs:
     
     # --- THE NEW FIX ---
     # ubuntu-20.04 is deprecated and no longer available for GitHub-hosted runners.
-    # We are switching to ubuntu-22.04, which is supported by both
-    # GitHub Actions and the Cortex CLI system requirements.
-    runs-on: ubuntu-22.04 
+    # ubuntu-22.04 still failed 
+    runs-on: ubuntu-24.04 
     
     needs: code-scan
     steps:
@@ -100,6 +100,7 @@ jobs:
             -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
             -H "Authorization: ${CORTEX_API_KEY}")
           crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
+          crtx_file=$(echo $crtx_resp | jq -r ".file_name") 
           curl -L -o cortexcli $crtx_url
           chmod +x cortexcli
           set +x
@@ -125,7 +126,6 @@ jobs:
           echo ">>> [Job 2] Starting Cortex image scan (Docker daemon method)..."
           echo "------------------------------------------"
           
-          # This command should now work correctly on ubuntu-22.04
           time sudo ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
