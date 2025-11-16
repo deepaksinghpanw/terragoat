@@ -105,11 +105,12 @@ jobs:
           docker build -t ${{ env.IMAGE_NAME }}:latest .
           echo ">>> [Job 2] Local image build complete."
 
-      - name: Save Image to .tar Archive
-        run: |
-          echo ">>> [Job 2] Saving image to ${{ env.IMAGE_NAME }}.tar"
-          docker save -o ${{ env.IMAGE_NAME }}.tar ${{ env.IMAGE_NAME }}:latest
-          echo ">>> [Job 2] Image saved."
+      # --- THIS STEP IS NOW REMOVED ---
+      # - name: Save Image to .tar Archive
+      #   run: |
+      #     echo ">>> [Job 2] Saving image to ${{ env.IMAGE_NAME }}.tar"
+      #     docker save -o ${{ env.IMAGE_NAME }}.tar ${{ env.IMAGE_NAME }}:latest
+      #     echo ">>> [Job 2] Image saved."
 
       - name: Set up Java 11
         run: |
@@ -122,16 +123,19 @@ jobs:
       - name: Run Cortex CLI Image Scan
         run: |
           echo "------------------------------------------"
-          echo ">>> [Job 2] Starting Cortex image scan (archive method)..."
+          echo ">>> [Job 2] Starting Cortex image scan (Docker daemon method)..."
           echo "------------------------------------------"
           
+          # Switching back to the default Docker daemon method.
+          # We have installed all dependencies (java, libhyperscan5, prelink)
+          # so this is more likely to work than the archive scan.
           time sudo ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
             --api-key-id "${CORTEX_API_KEY_ID}" \
             --support \
             image scan \
-            --archive ${{ env.IMAGE_NAME }}.tar \
+            ${{ env.IMAGE_NAME }}:latest \
             --source "GITHUB_ACTIONS"
             
           echo "------------------------------------------"
@@ -142,32 +146,31 @@ jobs:
         # This will run even if the previous step fails, allowing us to see the error
         if: always()
         run: |
-          echo ">>> [Job 2] Displaying Cortex CLI logs for debugging..."
-          # We ran the scanner with 'sudo', so the logs are in the /root directory
-          echo ">>> [Job 2] Log directory: /root/.cortexcli/logs/"
-          # We must also use 'sudo' to be able to list/read files in /root
-          sudo ls -laR /root/.cortexcli/logs/
+          echo ">>> [Job 2] Parsing most recent Cortex CLI log for errors..."
           
-          echo ">>> [Job 2] Printing all log files..."
-          # Use 'sudo' here as well
-          sudo find /root/.cortexcli/logs/ -type f -name "*.log" -exec cat {} + || echo "No .log files found."
-          echo ">>> [Job 2] End of logs."
+          # Find the most recent log file in the /root directory
+          # We need sudo to list the contents of /root/.cortexcli/logs
+          LOG_DIR="/root/.cortexcli/logs"
+          
+          # Check if the directory exists and has files
+          if ! sudo test -d $LOG_DIR || [ -z "$(sudo ls -A $LOG_DIR)" ]; then
+            echo ">>> [Job 2] Log directory $LOG_DIR is empty or does not exist."
+            exit 0
+          fi
+          
+          LATEST_LOG_FILE=$(sudo ls -t $LOG_DIR | head -n1)
+          FULL_LOG_PATH="$LOG_DIR/$LATEST_LOG_FILE"
+          
+          echo ">>> [Job 2] Parsing log file: $FULL_LOG_PATH"
+          
+          # Use sudo to cat the log file and pipe it to jq
+          # This jq command formats it as "SEVERITY","Message"
+          sudo cat $FULL_LOG_PATH | jq -r '[(.severity, .message)] | @csv' || echo ">>> [Job 2] Could not parse log file with jq."
+          
+          echo ">>> [Job 2] End of parsed log."
 
-  # --- JOB 3: BUILD, PUSH, AND DEPLOY ---
-  deploy:
-    name: 3. Build, Push, and Deploy
-    runs-on: ubuntu-latest
-    needs: [code-scan, image-scan]
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Log AWS credential configuration
-        run: echo ">>> [Job 3] Configuring AWS credentials..."
-
-      - name: Configure AWS Credentials
+      # --- JOB 3: BUILD, PUSH, AND DEPLOY ---
+      deploy:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
