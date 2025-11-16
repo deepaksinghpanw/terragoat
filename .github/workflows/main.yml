@@ -19,7 +19,7 @@ jobs:
   # --- JOB 1: SCAN TERRAFORM CODE ---
   code-scan:
     name: 1. Scan Terraform Code
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # This job is fine on ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -67,8 +67,14 @@ jobs:
   # --- JOB 2: SCAN DOCKER IMAGE ---
   image-scan:
     name: 2. Scan Docker Image
-    runs-on: ubuntu-latest
-    needs: code-scan 
+    
+    # --- THE FIX ---
+    # Change from 'ubuntu-latest' to 'ubuntu-20.04'.
+    # This matches the OS with the specific dependencies 
+    # required by the Cortex docs (libhyperscan5, prelink).
+    runs-on: ubuntu-20.04 
+    
+    needs: code-scan
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
@@ -112,16 +118,14 @@ jobs:
           sudo apt-get install -y openjdk-11-jre
           java -version
           echo ">>> [Job 2] Java 11 installed."
-    
+      
       - name: Run Cortex CLI Image Scan
         run: |
           echo "------------------------------------------"
           echo ">>> [Job 2] Starting Cortex image scan (Docker daemon method)..."
           echo "------------------------------------------"
           
-          # Switching back to the default Docker daemon method.
-          # We have installed all dependencies (java, libhyperscan5, prelink)
-          # so this is more likely to work than the archive scan.
+          # This command should now work correctly on ubuntu-20.04
           time sudo ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
@@ -165,8 +169,8 @@ jobs:
   # --- JOB 3: BUILD, PUSH, AND DEPLOY ---
   deploy:
     name: 3. Build, Push, and Deploy
-    runs-on: ubuntu-latest
-    needs: [code-scan, image-scan]
+    runs-on: ubuntu-latest # This job is fine on ubuntu-latest
+    needs: [code-scan, image-scan] # This will only run if image-scan succeeds
     if: github.ref == 'refs/heads/main'
     steps:
       - name: Checkout Repository
