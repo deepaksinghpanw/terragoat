@@ -1,88 +1,95 @@
-name: Simple Build and Scan (Stock Image Test)
+name: Cortex CLI - Scan Stock Image
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch:
+  workflow_dispatch: # Allows manual triggering
 
 # --- Define all ENV variables here for simplicity ---
+# These are available to all 'run' steps in the job.
 env:
   CORTEX_API_URL: https://api-e-cxsiamp.xdr.us.paloaltonetworks.com
-  IMAGE_NAME: python:3.10-slim  # --- We will scan this stock image ---
-  CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
-  CORTEX_API_KEY_ID: ${{ secrets.CORTEX_API_KEY_ID }}
+  IMAGE_NAME: python:3.10-slim  # --- The stock image to pull and scan ---
 
 jobs:
-  build-and-scan:
-    name: 1. Scan Stock Image
-    
-    # Use a stable, documented OS version
+  scan-stock-image:
+    name: Scan Stock Image
     runs-on: ubuntu-22.04
 
     steps:
-      # --- REMOVED 'Checkout Repository' step ---
-
-      # Step 1: Install all dependencies in one step
+      # Step 1: Install dependencies
+      # - jq: For parsing the API response to get the download URL
+      # - libhyperscan5: Required by the Cortex scanner
       - name: Install Dependencies
         run: |
-          echo "Installing dependencies..."
           sudo apt-get update
-          # - jq: for downloading the CLI
-          # - libhyperscan5: Required by docs for Ubuntu(linux-amd64)
           sudo apt-get install -y jq libhyperscan5
-          echo "Dependencies installed."
 
       # Step 2: Download the Cortex CLI
+      # This securely fetches a signed download link from the Cortex API
       - name: Download Cortex CLI
         run: |
           echo "Downloading Cortex CLI..."
+          # Use secrets for authentication
+          # Note: ${{ secrets.CORTEX_API_KEY }} is passed as an env var by GitHub
           crtx_resp=$(curl -s "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
-            -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
-            -H "Authorization: ${CORTEX_API_KEY}")
+            -H "x-xdr-auth-id: ${{ secrets.CORTEX_API_KEY_ID }}" \
+            -H "Authorization: Bearer ${{ secrets.CORTEX_API_KEY }}")
+          
+          # Parse the signed URL from the JSON response
           crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
+
+          if [ -z "$crtx_url" ] || [ "$crtx_url" == "null" ]; then
+            echo "::error::Failed to get CLI download link. Response:"
+            echo $crtx_resp
+            exit 1
+          fi
+
+          # Download the CLI binary
           curl -L -o cortexcli $crtx_url
           chmod +x cortexcli
-          echo "Cortex CLI downloaded."
+          echo "Cortex CLI downloaded successfully."
 
-      # Step 3: Pull the stock image to ensure it's local
+      # Step 3: Pull the stock image to the local runner
       - name: Pull Stock Docker Image
         run: |
-          echo "Pulling stock Docker image: ${{ env.IMAGE_NAME }}"
-          docker pull ${{ env.IMAGE_NAME }}
-          echo "Image pull complete."
+          echo "Pulling stock Docker image: $IMAGE_NAME"
+          docker pull $IMAGE_NAME
           docker images
 
       # Step 4: Run the scan
+      # We must use 'sudo' so the CLI can access the Docker socket
+      # and write to its default log directory (/root/.cortexcli)
       - name: Run Cortex CLI Image Scan
         run: |
           echo "Starting Cortex image scan..."
-          # Use sudo to run the scanner
           time sudo ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
-            --api-key "${CORTEX_API_KEY}" \
-            --api-key-id "${CORTEX_API_KEY_ID}" \
-            --support \
+            --api-key "${{ secrets.CORTEX_API_KEY }}" \
+            --api-key-id "${{ secrets.CORTEX_API_KEY_ID }}" \
             image scan \
-            ${{ env.IMAGE_NAME }} \
+            $IMAGE_NAME \
             --source "GITHUB_ACTIONS"
-          echo "Image scan finished."
 
       # Step 5: (Optional) Display logs on failure
+      # This step only runs if the 'Run Cortex CLI Image Scan' step fails
       - name: Display Cortex Logs on Failure
-        if: failure() # Only run this step if the scan fails
+        if: failure()
         run: |
-          echo ">>> Parsing most recent Cortex CLI log for errors..."
+          echo "::warning::Scan step failed. Displaying Cortex CLI logs..."
           LOG_DIR="/root/.cortexcli/logs"
           
+          # Check if log directory exists (it should, as scan ran w/ sudo)
           if ! sudo test -d $LOG_DIR || [ -z "$(sudo ls -A $LOG_DIR)" ]; then
             echo ">>> Log directory $LOG_DIR is empty or does not exist."
             exit 0
           fi
           
+          # Get the newest log file
           LATEST_LOG_FILE=$(sudo ls -t $LOG_DIR | head -n1)
           FULL_LOG_PATH="$LOG_DIR/$LATEST_LOG_FILE"
           
-          echo ">>> Parsing log file: $FULL_LOG_PATH"
-          sudo cat $FULL_LOG_PATH | jq -r '[(.severity, .message)] | @csv' || echo ">>> Could not parse log file."
-          echo ">>> End of parsed log."
+          echo ">>> Displaying contents of $FULL_LOG_PATH"
+          sudo cat $FULL_LOG_PATH
+          echo ">>> End of log."
