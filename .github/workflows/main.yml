@@ -32,8 +32,10 @@ jobs:
           sudo apt-get update
           # - jq: for downloading the CLI
           # - libhyperscan5: Required by docs for Ubuntu(linux-amd64)
-          # - openjdk-11-jre: Required by scanner for .jar analysis
-          sudo apt-get install -y jq libhyperscan5 openjdk-11-jre
+          # --- THE FIX ---
+          # Removing 'openjdk-11-jre'. This may be conflicting
+          # with a Java runtime bundled inside the Cortex CLI.
+          sudo apt-get install -y jq libhyperscan5
           echo "Dependencies installed."
 
       # Step 3: Download the Cortex CLI
