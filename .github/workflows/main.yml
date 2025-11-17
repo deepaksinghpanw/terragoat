@@ -26,13 +26,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq libhyperscan5
 
-      # Step 2: Download the Cortex CLI
-      # This securely fetches a signed download link from the Cortex API
+     # Step 2: Download the Cortex CLI
       - name: Download Cortex CLI
         run: |
           echo "Downloading Cortex CLI..."
           # Use secrets for authentication
-          # Note: ${{ secrets.CORTEX_API_KEY }} is passed as an env var by GitHub
+          # The "Authorization" header MUST start with "Bearer "
           crtx_resp=$(curl -s "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
             -H "x-xdr-auth-id: ${{ secrets.CORTEX_API_KEY_ID }}" \
             -H "Authorization: Bearer ${{ secrets.CORTEX_API_KEY }}")
@@ -40,13 +39,16 @@ jobs:
           # Parse the signed URL from the JSON response
           crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
 
+          # Fail-safe to check if the URL was retrieved
           if [ -z "$crtx_url" ] || [ "$crtx_url" == "null" ]; then
-            echo "::error::Failed to get CLI download link. Response:"
+            echo "::error::Failed to get CLI download link. Check API keys and permissions."
+            echo "Response from server:"
             echo $crtx_resp
             exit 1
           fi
 
           # Download the CLI binary
+          echo "Download link retrieved. Downloading binary..."
           curl -L -o cortexcli $crtx_url
           chmod +x cortexcli
           echo "Cortex CLI downloaded successfully."
