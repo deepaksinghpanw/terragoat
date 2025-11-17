@@ -1,0 +1,92 @@
+name: Simple Build and Scan
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# --- Define all ENV variables here for simplicity ---
+env:
+  CORTEX_API_URL: https://api-e-cxsiamp.xdr.us.paloaltonetworks.com
+  IMAGE_NAME: deepak-terragoat-app
+  CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
+  CORTEX_API_KEY_ID: ${{ secrets.CORTEX_API_KEY_ID }}
+
+jobs:
+  build-and-scan:
+    name: 1. Build and Scan Image
+    
+    # Use a stable, documented OS version
+    runs-on: ubuntu-22.04
+
+    steps:
+      # Step 1: Get the code (Dockerfile, app.py)
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Step 2: Install all dependencies in one step
+      - name: Install Dependencies
+        run: |
+          echo "Installing dependencies..."
+          sudo apt-get update
+          # - jq: for downloading the CLI
+          # - libhyperscan5: Required by docs for Ubuntu(linux-amd64)
+          # - openjdk-11-jre: Required by scanner for .jar analysis
+          sudo apt-get install -y jq libhyperscan5 openjdk-11-jre
+          echo "Dependencies installed."
+
+      # Step 3: Download the Cortex CLI
+      - name: Download Cortex CLI
+        run: |
+          echo "Downloading Cortex CLI..."
+          crtx_resp=$(curl -s "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
+            -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
+            -H "Authorization: ${CORTEX_API_KEY}")
+          crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
+          curl -L -o cortexcli $crtx_url
+          chmod +x cortexcli
+          echo "Cortex CLI downloaded."
+
+      # Step 4: Build the Docker image using the host's daemon
+      - name: Build Docker Image
+        run: |
+          echo "Building local Docker image: ${{ env.IMAGE_NAME }}:latest"
+          # No buildx/qemu, just a standard build
+          docker build -t ${{ env.IMAGE_NAME }}:latest .
+          echo "Image build complete."
+          docker images
+
+      # Step 5: Run the scan
+      - name: Run Cortex CLI Image Scan
+        run: |
+          echo "Starting Cortex image scan..."
+          # Use sudo to run the scanner
+          time sudo ./cortexcli \
+            --api-base-url "${CORTEX_API_URL}" \
+            --api-key "${CORTEX_API_KEY}" \
+            --api-key-id "${CORTEX_API_KEY_ID}" \
+            --support \
+            image scan \
+            ${{ env.IMAGE_NAME }}:latest \
+            --source "GITHUB_ACTIONS"
+          echo "Image scan finished."
+
+      # Step 6: (Optional) Display logs on failure
+      - name: Display Cortex Logs on Failure
+        if: failure() # Only run this step if the scan fails
+        run: |
+          echo ">>> Parsing most recent Cortex CLI log for errors..."
+          LOG_DIR="/root/.cortexcli/logs"
+          
+          if ! sudo test -d $LOG_DIR || [ -z "$(sudo ls -A $LOG_DIR)" ]; then
+            echo ">>> Log directory $LOG_DIR is empty or does not exist."
+            exit 0
+          fi
+          
+          LATEST_LOG_FILE=$(sudo ls -t $LOG_DIR | head -n1)
+          FULL_LOG_PATH="$LOG_DIR/$LATEST_LOG_FILE"
+          
+          echo ">>> Parsing log file: $FULL_LOG_PATH"
+          sudo cat $FULL_LOG_PATH | jq -r '[(.severity, .message)] | @csv' || echo ">>> Could not parse log file."
+          echo ">>> End of parsed log."
