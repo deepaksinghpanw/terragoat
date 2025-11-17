@@ -10,7 +10,7 @@ on:
 # These are available to all 'run' steps in the job.
 env:
   CORTEX_API_URL: https://api-e-cxsiamp.xdr.us.paloaltonetworks.com
-  IMAGE_NAME: python:3.10-slim  # --- The stock image to pull and scan ---
+  IMAGE_NAME: python:3.9-slim  # --- The stock image to pull and scan ---
 
 jobs:
   scan-stock-image:
