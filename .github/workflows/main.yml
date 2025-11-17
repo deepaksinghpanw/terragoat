@@ -84,14 +84,15 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          # --- THE FIX ---
-          # We are removing 'libhyperscan5' and 'prelink'.
-          # Those are dependencies for UBUNTU 20.04, not 24.04.
-          # Installing them on 24.04 is causing the CWP module to crash.
-          # We only need 'jq' for the download step.
-          echo ">>> [Job 2] Installing dependencies (jq)..."
+          # --- THE NEW FIX ---
+          # Based on the docs, 'libhyperscan5' is required for ALL
+          # Ubuntu(linux-amd64) runners.
+          # 'prelink' (for prefetch) is ONLY for Ubuntu 20.04.
+          # The correct setup for ubuntu-24.04 is to install
+          # 'jq' (for download step) and 'libhyperscan5' (for scanner).
+          echo ">>> [Job 2] Installing dependencies (jq, libhyperscan5)..."
           sudo apt-get update
-          sudo apt-get install -y jq
+          sudo apt-get install -y jq libhyperscan5
           echo ">>> [Job 2] Dependencies installed."
 
       - name: Download cortexcli
@@ -115,6 +116,7 @@ jobs:
 
       - name: Set up Java 11
         run: |
+          # This step is likely required for the scanner's .jar file analysis
           echo ">>> [Job 2] Installing Java 11..."
           sudo apt-get update
           sudo apt-get install -y openjdk-11-jre
