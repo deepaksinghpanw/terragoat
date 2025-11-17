@@ -1,112 +1,91 @@
-name: Cortex CLI - Scan Stock Image
+name: Simple Build and Scan (Stock Image Test)
 
 on:
   push:
     branches:
       - main
-  workflow_dispatch: # Allows manual triggering
+  workflow_dispatch:
 
 # --- Define all ENV variables here for simplicity ---
-# These are available to all 'run' steps in the job.
 env:
   CORTEX_API_URL: https://api-e-cxsiamp.xdr.us.paloaltonetworks.com
-  IMAGE_NAME: alpine:latest  # --- The stock image to pull and scan ---
+  IMAGE_NAME: python:3.10-slim  # --- We will scan this stock image ---
+  CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
+  CORTEX_API_KEY_ID: ${{ secrets.CORTEX_API_KEY_ID }}
 
 jobs:
-  scan-stock-image:
-    name: Scan Stock Image
-    runs-on: ubuntu-22.04
+  build-and-scan:
+    name: 1. Scan Stock Image
+    
+    # --- THE FIX ---
+    # The evidence you provided (Update 1, 2, 3) strongly suggests
+    # the scanner is *only* compatible with Ubuntu 20.04.
+    # We are returning to this OS and providing the *full* set
+    # of dependencies required by the docs for this specific version.
+    runs-on: ubuntu-20.04
 
     steps:
-      # Step 1: Install dependencies
-      # - jq: For parsing the API response to get the download URL
-      # - libhyperscan5: Required by the Cortex scanner
+      # Step 1: Install all dependencies in one step
       - name: Install Dependencies
         run: |
+          echo "Installing dependencies..."
           sudo apt-get update
-          sudo apt-get install -y jq libhyperscan5
+          # - jq: for downloading the CLI
+          # - libhyperscan5: Required by docs for Ubuntu(linux-amd64)
+          # - prelink: Provides 'prefetch', required by docs for Ubuntu 20
+          sudo apt-get install -y jq libhyperscan5 prelink
+          echo "Dependencies installed."
 
       # Step 2: Download the Cortex CLI
-      - name: Download Cortex CLI (Debug)
+      - name: Download Cortex CLI
         run: |
           echo "Downloading Cortex CLI..."
-          echo "Attempting to get download link from: ${CORTEX_API_URL}"
-
-          # Use -v (verbose) to print the full request and response
-          # This will show us the HTTP status code (e.g., 401, 403)
-          # We are also removing the "Bearer" prefix as a test.
-          HTTP_RESPONSE=$(curl -v -s -w "\nHTTP_STATUS:%{http_code}" \
-            "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
-            -H "x-xdr-auth-id: ${{ secrets.CORTEX_API_KEY_ID }}" \
-            -H "Authorization: ${{ secrets.CORTEX_API_KEY }}")
-          
-          echo "--- Full cURL Response ---"
-          echo "$HTTP_RESPONSE"
-          echo "--------------------------"
-
-          # Extract the JSON body (everything before the last line)
-          # and the status code (the last line)
-          JSON_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
-          HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n1 | cut -d: -f2)
-
-          if [ "$HTTP_STATUS" != "200" ]; then
-            echo "::error::Failed to download. Status code: $HTTP_STATUS"
-            echo "Server Response Body: $JSON_BODY"
-            exit 1
-          fi
-
-          crtx_url=$(echo $JSON_BODY | jq -r ".signed_url")
-
-          if [ -z "$crtx_url" ] || [ "$crtx_url" == "null" ]; then
-            echo "::error::Got HTTP 200 but signed_url was null."
-            echo "Response: $JSON_BODY"
-            exit 1
-          fi
-
-          echo "Download link retrieved. Downloading binary..."
+          crtx_resp=$(curl -s "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
+            -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
+            -H "Authorization: ${CORTEX_API_KEY}")
+          crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
           curl -L -o cortexcli $crtx_url
           chmod +x cortexcli
-          echo "Cortex CLI downloaded successfully."
+          echo "Cortex CLI downloaded."
 
-      # Step 3: Pull the stock image to the local runner
+      # Step 3: Pull the stock image to ensure it's local
       - name: Pull Stock Docker Image
         run: |
-          echo "Pulling stock Docker image: $IMAGE_NAME"
-          docker pull $IMAGE_NAME
+          echo "Pulling stock Docker image: ${{ env.IMAGE_NAME }}"
+          docker pull ${{ env.IMAGE_NAME }}
+          echo "Image pull complete."
           docker images
 
       # Step 4: Run the scan
-      # We must use 'sudo' so the CLI can access the Docker socket
-      # and write to its default log directory (/root/.cortexcli)
       - name: Run Cortex CLI Image Scan
         run: |
           echo "Starting Cortex image scan..."
+          # Use sudo to run the scanner
           time sudo ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
-            --api-key "${{ secrets.CORTEX_API_KEY }}" \
-            --api-key-id "${{ secrets.CORTEX_API_KEY_ID }}" \
+            --api-key "${CORTEX_API_KEY}" \
+            --api-key-id "${CORTEX_API_KEY_ID}" \
+            --support \
             image scan \
-            $IMAGE_NAME \
+            ${{ env.IMAGE_NAME }} \
             --source "GITHUB_ACTIONS"
+          echo "Image scan finished."
 
       # Step 5: (Optional) Display logs on failure
-      # This step only runs if the 'Run Cortex CLI Image Scan' step fails
       - name: Display Cortex Logs on Failure
-        if: failure()
+        if: failure() # Only run this step if the scan fails
         run: |
-          echo "::warning::Scan step failed. Displaying Cortex CLI logs..."
+          echo ">>> Parsing most recent Cortex CLI log for errors..."
           LOG_DIR="/root/.cortexcli/logs"
           
-          # Check if log directory exists (it should, as scan ran w/ sudo)
           if ! sudo test -d $LOG_DIR || [ -z "$(sudo ls -A $LOG_DIR)" ]; then
             echo ">>> Log directory $LOG_DIR is empty or does not exist."
             exit 0
           fi
           
-          # Get the newest log file
           LATEST_LOG_FILE=$(sudo ls -t $LOG_DIR | head -n1)
           FULL_LOG_PATH="$LOG_DIR/$LATEST_LOG_FILE"
           
-          echo ">>> Displaying contents of $FULL_LOG_PATH"
-          sudo cat $FULL_LOG_PATH
-          echo ">>> End of log."
+          echo ">>> Parsing log file: $FULL_LOG_PATH"
+          sudo cat $FULL_LOG_PATH | jq -r '[(.severity, .message)] | @csv' || echo ">>> Could not parse log file."
+          echo ">>> End of parsed log."
