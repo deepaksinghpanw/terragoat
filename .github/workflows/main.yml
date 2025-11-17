@@ -76,20 +76,22 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      # --- THE FIX ---
+      # Removing these two steps. They are for multi-arch builds
+      # and were causing the image to be built in a separate
+      # 'buildx' context, making it invisible to the cortexcli scanner.
+      # - name: Set up QEMU
+      #   uses: docker/setup-qemu-action@v3
+      #
+      # - name: Set up Docker Buildx
+      #   uses: docker/setup-buildx-action@v3
+      # --- END FIX ---
 
       - name: Install Dependencies
         run: |
-          # --- THE NEW FIX ---
-          # Based on the docs, 'libhyperscan5' is required for ALL
+          # Per the docs, 'libhyperscan5' is required for all
           # Ubuntu(linux-amd64) runners.
-          # 'prelink' (for prefetch) is ONLY for Ubuntu 20.04.
-          # The correct setup for ubuntu-24.04 is to install
-          # 'jq' (for download step) and 'libhyperscan5' (for scanner).
+          # 'jq' is required for the download step.
           echo ">>> [Job 2] Installing dependencies (jq, libhyperscan5)..."
           sudo apt-get update
           sudo apt-get install -y jq libhyperscan5
@@ -111,6 +113,7 @@ jobs:
       - name: Build Docker Image
         run: |
           echo ">>> [Job 2] Building local Docker image: ${{ env.IMAGE_NAME }}:latest"
+          # This will now build in the default host Docker daemon
           docker build -t ${{ env.IMAGE_NAME }}:latest .
           echo ">>> [Job 2] Local image build complete."
 
@@ -129,7 +132,7 @@ jobs:
           echo ">>> [Job 2] Starting Cortex image scan (Docker daemon method)..."
           echo "------------------------------------------"
           
-          # This command will now run on ubuntu-24.04 with the correct libraries
+          # This should now find the image successfully
           time sudo ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
