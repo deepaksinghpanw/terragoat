@@ -26,28 +26,43 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq libhyperscan5
 
-     # Step 2: Download the Cortex CLI
-      - name: Download Cortex CLI
+      # Step 2: Download the Cortex CLI
+      - name: Download Cortex CLI (Debug)
         run: |
           echo "Downloading Cortex CLI..."
-          # Use secrets for authentication
-          # The "Authorization" header MUST start with "Bearer "
-          crtx_resp=$(curl -s "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
-            -H "x-xdr-auth-id: ${{ secrets.CORTEX_API_KEY_ID }}" \
-            -H "Authorization: Bearer ${{ secrets.CORTEX_API_KEY }}")
-          
-          # Parse the signed URL from the JSON response
-          crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
+          echo "Attempting to get download link from: ${CORTEX_API_URL}"
 
-          # Fail-safe to check if the URL was retrieved
-          if [ -z "$crtx_url" ] || [ "$crtx_url" == "null" ]; then
-            echo "::error::Failed to get CLI download link. Check API keys and permissions."
-            echo "Response from server:"
-            echo $crtx_resp
+          # Use -v (verbose) to print the full request and response
+          # This will show us the HTTP status code (e.g., 401, 403)
+          # We are also removing the "Bearer" prefix as a test.
+          HTTP_RESPONSE=$(curl -v -s -w "\nHTTP_STATUS:%{http_code}" \
+            "${CORTEX_API_URL}/public_api/v1/unified-cli/releases/download-link?os=linux&architecture=amd64" \
+            -H "x-xdr-auth-id: ${{ secrets.CORTEX_API_KEY_ID }}" \
+            -H "Authorization: ${{ secrets.CORTEX_API_KEY }}")
+          
+          echo "--- Full cURL Response ---"
+          echo "$HTTP_RESPONSE"
+          echo "--------------------------"
+
+          # Extract the JSON body (everything before the last line)
+          # and the status code (the last line)
+          JSON_BODY=$(echo "$HTTP_RESPONSE" | sed '$d')
+          HTTP_STATUS=$(echo "$HTTP_RESPONSE" | tail -n1 | cut -d: -f2)
+
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "::error::Failed to download. Status code: $HTTP_STATUS"
+            echo "Server Response Body: $JSON_BODY"
             exit 1
           fi
 
-          # Download the CLI binary
+          crtx_url=$(echo $JSON_BODY | jq -r ".signed_url")
+
+          if [ -z "$crtx_url" ] || [ "$crtx_url" == "null" ]; then
+            echo "::error::Got HTTP 200 but signed_url was null."
+            echo "Response: $JSON_BODY"
+            exit 1
+          fi
+
           echo "Download link retrieved. Downloading binary..."
           curl -L -o cortexcli $crtx_url
           chmod +x cortexcli
