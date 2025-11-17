@@ -38,7 +38,6 @@ jobs:
             -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
             -H "Authorization: ${CORTEX_API_KEY}")
           crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
-          crtx_file=$(echo $crtx_resp | jq -r ".file_name") 
           curl -L -o cortexcli $crtx_url
           chmod +x cortexcli
           set +x
@@ -69,9 +68,7 @@ jobs:
   image-scan:
     name: 2. Scan Docker Image
     
-    # --- THE NEW FIX ---
-    # ubuntu-20.04 is deprecated and no longer available for GitHub-hosted runners.
-    # ubuntu-22.04 still failed 
+    # We are keeping ubuntu-24.04, which is a supported OS.
     runs-on: ubuntu-24.04 
     
     needs: code-scan
@@ -87,9 +84,14 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          echo ">>> [Job 2] Installing dependencies (jq, libhyperscan5, prelink)..."
+          # --- THE FIX ---
+          # We are removing 'libhyperscan5' and 'prelink'.
+          # Those are dependencies for UBUNTU 20.04, not 24.04.
+          # Installing them on 24.04 is causing the CWP module to crash.
+          # We only need 'jq' for the download step.
+          echo ">>> [Job 2] Installing dependencies (jq)..."
           sudo apt-get update
-          sudo apt-get install -y jq libhyperscan5 prelink
+          sudo apt-get install -y jq
           echo ">>> [Job 2] Dependencies installed."
 
       - name: Download cortexcli
@@ -100,7 +102,6 @@ jobs:
             -H "x-xdr-auth-id: ${CORTEX_API_KEY_ID}" \
             -H "Authorization: ${CORTEX_API_KEY}")
           crtx_url=$(echo $crtx_resp | jq -r ".signed_url")
-          crtx_file=$(echo $crtx_resp | jq -r ".file_name") 
           curl -L -o cortexcli $crtx_url
           chmod +x cortexcli
           set +x
@@ -126,6 +127,7 @@ jobs:
           echo ">>> [Job 2] Starting Cortex image scan (Docker daemon method)..."
           echo "------------------------------------------"
           
+          # This command will now run on ubuntu-24.04 with the correct libraries
           time sudo ./cortexcli \
             --api-base-url "${CORTEX_API_URL}" \
             --api-key "${CORTEX_API_KEY}" \
@@ -140,7 +142,7 @@ jobs:
           echo "------------------------------------------"
 
       - name: Display Cortex Logs on Failure
-        # This will run even if the previous step fails, allowing us to see the error
+        # This will run even.
         if: always()
         run: |
           echo ">>> [Job 2] Parsing most recent Cortex CLI log for errors..."
@@ -188,12 +190,12 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Log in to Amazon ECR
-        id: login--ecr
+        id: login-ecr
         run: |
           echo ">>> [Job 3] Logging into AWS ECR..."
           # This command dynamically gets your AWS Account ID
           AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          aws ecr get-login-password --region ${{ env.AWS_TOKEN }} | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
           echo ">>> [Job 3] ECR login successful."
           echo "registry=$AWS_ACCOUNT_ID.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com" >> $GITHUB_OUTPUT
 
