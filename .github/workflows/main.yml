@@ -8,7 +8,7 @@ on:
 
 # --- Define all ENV variables here for simplicity ---
 env:
-  CORTEX_API_URL: https://api-e-cxsiamp.xdr.us.paloaltonetworks.com
+  CORTEX_API_URL: https://api-pcscortexcloud.xdr.us.paloaltonetworks.com
   IMAGE_NAME: python:3.10-slim  # --- We will scan this stock image ---
   CORTEX_API_KEY: ${{ secrets.CORTEX_API_KEY }}
   CORTEX_API_KEY_ID: ${{ secrets.CORTEX_API_KEY_ID }}
