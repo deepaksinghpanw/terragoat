@@ -8,7 +8,7 @@ on:
 
 env:
   # Global variables (used by all jobs)
-  CORTEX_API_URL: https://api-e-cxsiamp.xdr.us.paloaltonetworks.com
+  CORTEX_API_URL: https://api-pcscortexcloud.xdr.us.paloaltonetworks.com
   IMAGE_NAME: deepak-terragoat-app
   AWS_ECR_REPOSITORY: cc-demo/my-terragoat-app
   AWS_REGION: ${{ secrets.AWS_REGION }}
